@@ -1,41 +1,231 @@
-#include "polynomials.h"
+import numpy as np
+cimport numpy as np
+np.import_array()
 
-#include <algorithm>
-#include <iostream>
-#include <numeric>
-#include <sstream>
-#include <string>
-#include <tuple>
+INT_TYPE = np.int64
+DOUBLE_TYPE = np.float64
+ctypedef np.int64_t INT_TYPE_t
+ctypedef np.float64_t DOUBLE_TYPE_t
+
+
+cdef class Binomial:
+    cdef public INT_TYPE_t[:] exponent
+    cdef public int degree
+    cdef public double cost
+    cdef public DOUBLE_TYPE_t[:] cost_vector
+
+cdef class Monomial:
+    
+    cdef public INT_TYPE_t[:] exponent
+    cdef public int degree
+    cdef public double cost
+    cdef public DOUBLE_TYPE_t[:] cost_vector
+
+    def __init__(self, INT_TYPE_t[:] exponent, DOUBLE_TYPE_t[:] cost_vector):
+        self.exponent = exponent
+        self.degree = exponent.shape[0]
+        self.cost = np.dot(exponent, cost_vector)
+        self.cost_vector = cost_vector
+
+    def __getitem__(self, int idx):
+        return self.exponent[idx]
+
+    @property
+    def size(self):
+        return self.exponent.shape[0]
+
+    def __mul__(self, other):
+        exp_sum = np.zeros(self.size, dtype=INT_TYPE)
+        cdef INT_TYPE_t[:] exp_sum_view = exp_sum
+        cdef int i
+        for i in range(self.size):
+            exp_sum_view[i] = self.exponent[i] + other.exponent[i]
+        return Monomial(exp_sum, self.cost_vector)
+
+    def __div__(self, other):
+        exp_diff = np.zeros(self.size, dtype=INT_TYPE)
+        cdef INT_TYPE_t[:] exp_diff_view = exp_diff
+        cdef int i
+        for i in range(self.size):
+            exp_diff_view[i] = self.exponent[i] - other.exponent[i]
+        return Monomial(exp_diff, self.cost_vector)
+
+    def __eq__(self, other):
+        return np.all(self.exponent == other.exponent)
+
+    def __gt__(self, other):
+        if (self.cost > other.cost):
+            return True
+        else:
+            return self.grevlex_gt(other)
+
+    def __repr__(self):
+        return '[' + ','.join(map(str, self.exponent)) + ']'
+
+    cdef bint grevlex_gt(self, Monomial other):
+        cdef int i
+        if self.degree > other.degree:
+            return True
+        elif other.degree > self.degree:
+            return False
+        else:
+            for i in range(self.size-1, -1, -1):
+                if other.exponent[i] > self.exponent[i]:
+                    return True
+                elif self.exponent[i] > other.exponent[i]:
+                    return False
+        return False
+
+    cdef Monomial reduce_positive(self, Binomial other):
+        pass
+
+    cdef bint is_divisible_monomial(self, Monomial other):
+        cdef int i
+        for i in range(self.size):
+            if self[i] < other[i]:
+                return False
+        return True
+
+    cdef bint is_divisible_binomial(self, Binomial other):
+        cdef int i
+        for i in range(self.size):
+            if other[i] > 0 and self[i] < other[i]:
+                return False
+        return True
+
+cdef Monomial gcd(Monomial m1, Monomial m2):
+    return Monomial(np.minimum(m1.exponent, m2.exponent), m1.cost_vector)
+
+cdef Monomial lcm(Monomial m1, Monomial m2):
+    return Monomial(np.maximum(m1.exponent, m2.exponent), m1.cost_vector)
+
+"""
+class Term {
+public:
+  friend Term operator*(const Term& t1, const Term& t2) { return Term{t1.coeff * t2.coeff, t1.monom * t2.monom}; }
+  friend Term operator/(const Term& t1, const Term& t2) { return Term{t1.coeff / t2.coeff, t1.monom / t2.monom}; }
+  friend bool operator==(const Term& t1, const Term& t2) { return (t1.coeff == t2.coeff) && (t1.monom == t2.monom); }
+  friend bool operator!=(const Term& t1, const Term& t2) { return !(t1 == t2); }
+  friend std::ostream& operator<<(std::ostream& os, const Term& t);
+
+  Coefficient coeff;
+  Monomial monom;
+};
+*/
+
+class Binomial {
+public:
+  Binomial() : exponent{}, sug{0} {}
+	Binomial(int dim) : exponent(dim,0), degree(0), cost(0) {}
+  Binomial(std::initializer_list<int> exp, std::initializer_list<double> cost_vector);
+  Binomial(std::vector<int> exp, std::vector<double> cost_vector);
+  // Coefficient LC() const { return 1; }
+  Monomial LM() const;
+  int sugar() const { return sug; };
+	bool is_nonzero() const;
+  void flip();
+
+  int operator[](int i) const { return exponent[i]; }
+  int& operator[](int i) { return exponent[i]; }
+	int size() const { return exponent.size();}
+
+	double get_cost() const { return cost; }
+
+	int get_degree() const { return degree; }
+	void set_degree(int deg) {degree = deg;}
+	
+  //friend Polynomial operator+(const Polynomial& f1, const Polynomial& f2);
+  //friend Polynomial operator-(const Polynomial& f1, const Polynomial& f2);
+  //friend Polynomial operator*(const Term& t, const Polynomial& f);
+  //friend Polynomial operator*(const Polynomial& f1, const Polynomial& f2);
+	
+	// Construct a new binomial given by difference of exponent vectors
+	friend Binomial reduce_positive(const Binomial& f1, const Binomial& f2);
+	// Construct a new binomial given by sum of exponent vectors
+	friend Binomial reduce_negative(const Binomial& f1, const Binomial& f2);
+	friend Binomial spoly(const Binomial& f, const Binomial& g);
+	
+	// Determine if positive part of f1 is larger than positive part of f2, if f1 divisible by f2
+  friend bool is_divisible(const Binomial& f1, const Binomial& f2);
+	// Determine if negative part of f1 is larger than positive part of f2, if f1 divisible by -f2
+  friend bool is_divisible_negative(const Binomial& f1, const Binomial& f2); // Determine if 
+  friend bool operator==(const Binomial& f1, const Binomial& f2);
+  friend bool operator!=(const Binomial& f1, const Binomial& f2) { return !(f1 == f2); }
+  friend std::ostream& operator<<(std::ostream& os, const Binomial& f);
+private:
+  std::vector<int> exponent; // Positive terms represent first monomial, negative the second monomial
+  int sug;
+  int degree;
+  double cost;
+};
 
 /*
-Coefficient operator/(Coefficient c1, Coefficient c2) {
+class Polynomial {
+public:
+  Polynomial() : terms{}, sug{0} {}
+  Polynomial(std::initializer_list<Term> tms);
+  Polynomial(std::vector<Term> tms);
+  Coefficient LC() const { return terms[0].coeff; }
+  Monomial LM() const { return terms[0].monom; }
+  Term LT() const { return terms[0]; }
+  int size() const { return terms.size(); };
+  int sugar() const { return sug; };
 
-  // compute a = c2 inverse using extended Euclidean algorithm
-  int a = 0, a_ = 1;
-  int b = P, b_ = c2.c;
-  while (b_ != 0) {
-    int q = b / b_;
-    std::tie(a, a_) = std::make_tuple(a_, a - q * a_);
-    std::tie(b, b_) = std::make_tuple(b_, b - q * b_);
-  }
+  friend Polynomial operator+(const Polynomial& f1, const Polynomial& f2);
+  friend Polynomial operator-(const Polynomial& f1, const Polynomial& f2);
+  friend Polynomial operator*(const Term& t, const Polynomial& f);
+  friend Polynomial operator*(const Polynomial& f1, const Polynomial& f2);
+  friend bool operator==(const Polynomial& f1, const Polynomial& f2);
+  friend bool operator!=(const Polynomial& f1, const Polynomial& f2) { return !(f1 == f2); }
+  friend std::ostream& operator<<(std::ostream& os, const Polynomial& f);
 
-  return c1.c * a;
-}
+  std::vector<Term> terms;
+
+private:
+  int sug;
+};
 */
+
+/**
+ * Return the polynomial from the given string.
+ *
+ * Polynomials have the form
+ *
+ *  polynomial = term polynomial
+ *        term = integer * monomial
+ *             | integer
+ *             | monomial
+ *             | + term
+ *             | - term
+ *    monomial = variable ^ integer * monomial
+ *             | variable ^ integer
+ *             | variable * monomial
+ *             | variable
+ *
+ * where variables are ["a", "b", ..., "h"], integers are sequences of
+ * ["0", "1", ..., "9"], and no spaces are allowed.
+ *
+ * This function does not do any error checking, so be careful!
+ */
+//Polynomial parse_polynomial(const std::string& poly_string);
+
+
+#endif
+
 
 Monomial::Monomial(std::initializer_list<int> exp, std::initializer_list<double> cost_vector) {
   // if (exp.size() > N) throw std::invalid_argument("exponent vector is too large");
   std::fill(exponent.begin(), exponent.end(), 0);
   std::copy(exp.begin(), exp.end(), exponent.begin());
   degree = std::accumulate(exponent.begin(), exponent.end(), 0);
-  cost = std::inner_product(exponent.begin(), exponent.end(), cost_vector.begin(), 0.0);
+  cost = std::inner_product(exponent.begin(), exponent.end(), cost_vector.begin(), 0);
 }
 
 
 Monomial::Monomial(std::vector<int> exp, std::vector<double> cost_vector) {
 	exponent = exp;
   degree = std::accumulate(exponent.begin(), exponent.end(), 0);
-  cost = std::inner_product(exponent.begin(), exponent.end(), cost_vector.begin(), 0.0);
+  cost = std::inner_product(exponent.begin(), exponent.end(), cost_vector.begin(), 0);
 }  
 
 
@@ -179,7 +369,6 @@ Binomial::Binomial(std::initializer_list<int> exp, std::initializer_list<double>
 }
 
 Binomial::Binomial(std::vector<int> exp, std::vector<double> cost_vector) {
-  //std::cout << "exp size " << exp.size() << ", cost size " << cost_vector.size() << std::endl;
 	exponent = exp;
   degree = std::accumulate(exponent.begin(), exponent.end(), 0);
   cost = std::inner_product(exponent.begin(), exponent.end(), cost_vector.begin(), 0.0);
@@ -404,3 +593,4 @@ Binomial spoly(const Binomial& f, const Binomial& g) {
 
   return s;
 }
+"""
